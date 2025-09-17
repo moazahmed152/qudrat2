@@ -1,6 +1,10 @@
 
 # config.py
-TELEGRAM_BOT_TOKEN = "TOKEN"
+import os
+
+# اقرأ التوكن من الـ Environment Variables بتاعت Railway
+TELEGRAM_BOT_TOKEN = os.getenv("TOKEN")
+
 valid_keys = ["a", "XYZ789", "TESTKEY"]
 DB_FILE = "students.json"
 FEEDBACK_FILE = "feedback.json"
