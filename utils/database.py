@@ -64,3 +64,11 @@ def append_feedback(uid: int, text: str):
     fb = _read_json(FEEDBACK_FILE, {"items": []})
     fb["items"].append({"uid": uid, "text": text, "ts": int(time.time())})
     _write_json(FEEDBACK_FILE, fb)
+
+def save_student_progress(uid, section, payload):
+    data = load_students(); sid = str(uid)
+    if sid not in data["data"]:
+        data["data"][sid] = {"key": None, "progress": {}}
+    data["data"][sid].setdefault("progress", {})
+    data["data"][sid]["progress"][section] = payload
+    save_students(data)    
