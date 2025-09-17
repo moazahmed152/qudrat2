@@ -1,140 +1,85 @@
-
-import json
-from telegram import Update
+# handlers/training_handler.py
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-from config import TRAINING_FILE
-from utils.keyboards import doors_kb, lessons_kb, rules_kb, start_questions_kb, choices_kb, results_kb, back_to_main_kb
-from utils.database import add_attempt, get_section_badge
+from utils.database import save_student_progress
 
-def _load():
-    with open(TRAINING_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+# === بيانات تدريب تجريبية ===
+TRAINING_QUESTIONS = [
+    {
+        "id": "t1",
+        "text": "5 + 7 = ؟",
+        "choices": ["10", "11", "12", "13"],
+        "answer": 2  # 0-based => "12"
+    },
+    {
+        "id": "t2",
+        "text": "8 × 3 = ؟",
+        "choices": ["24", "21", "18", "26"],
+        "answer": 0  # => "24"
+    }
+]
 
+# === القائمة الرئيسية للتدريب ===
 async def training_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    ct = _load()
-    badge = get_section_badge(q.from_user.id, "training")
-    section_title = "التأسيس" if "training"=="foundation" else ("التدريب" if "training"=="training" else "الاختبارات")
-    header = f"📘 قائمة {section_title} — تقدّمك: 🎖️ {badge}%"
-    await q.edit_message_text(header, reply_markup=doors_kb("training", ct))
+    query = update.callback_query
+    await query.answer()
 
-async def training_door(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    parts = q.data.split(":")
-    if len(parts) < 3:
-        await q.edit_message_text("صيغة غير صحيحة.", reply_markup=back_to_main_kb()); return
-    d = parts[2]
-    ct = _load()
-    door = ct.get("doors", {}).get(d)
-    if not door:
-        await q.edit_message_text("🚧 الباب غير متاح.", reply_markup=back_to_main_kb()); return
-    await q.edit_message_text(f"🚪 الباب {d} — اختر درس:", reply_markup=lessons_kb("training", d, door))
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📘 تدريب الباب 1", callback_data="training:start:0")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="main:menu")]
+    ])
+    await query.edit_message_text("🏋️ اختار التدريب:", reply_markup=kb)
 
-async def training_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    parts = q.data.split(":")
-    if len(parts) < 5:
-        await q.edit_message_text("صيغة غير صحيحة.", reply_markup=back_to_main_kb()); return
-    d, l = parts[2], parts[4]
-    ct = _load()
-    door = ct.get("doors", {}).get(d, {})
-    lesson = door.get("lessons", {}).get(l)
-    if not lesson:
-        await q.edit_message_text("🚧 الدرس غير متاح.", reply_markup=back_to_main_kb()); return
-    await q.edit_message_text(f"📘 الدرس {l}: {lesson.get('title','')}\nاختر القاعدة:", reply_markup=rules_kb("training", d, l, lesson))
+# === عرض سؤال معين ===
+async def training_start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-async def training_rule(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    parts = q.data.split(":")
-    if len(parts) < 7:
-        await q.edit_message_text("صيغة غير صحيحة.", reply_markup=back_to_main_kb()); return
-    d, l, r = parts[2], parts[4], parts[6]
-    ct = _load()
-    rule = ct["doors"][d]["lessons"][l]["rules"][r]
-    video = rule.get("video_url", "")
-    text = (
-        f"🔎 *{rule.get('title','قاعدة')}*\n\n"
-        f"شرح:\n{rule.get('explanation','')}\n\n"
-        f"مثال:\n{rule.get('example','')}\n\n"
-        f"واجب:\n{rule.get('homework','')}"
-    )
-    if video:
-        text += f"\n\n🎬 فيديو الشرح: {video}"
-    await q.edit_message_text(text, parse_mode="Markdown", reply_markup=start_questions_kb("training", d, l, r))
-
-async def training_startq(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    parts = q.data.split(":")
-    try:
-        d, l, r, idx = parts[4], parts[6], parts[8], int(parts[9])
-    except Exception:
-        await q.edit_message_text("صيغة الأسئلة غير صحيحة.", reply_markup=back_to_main_kb()); return
-    ct = _load()
-    questions = ct["doors"][d]["lessons"][l]["rules"][r].get("questions", [])
-    context.user_data["path"] = f"door:{d}/lesson:{l}/rule:{r}"
-    context.user_data["section"] = "training"
-    context.user_data["questions"] = questions
-    context.user_data["q_idx"] = idx
-    if idx < len(questions):
-        qd = questions[idx]
-        qtext = f"❓ سؤال {idx+1}/{len(questions)}\n{qd['text']}"
-        await q.edit_message_text(qtext, reply_markup=choices_kb(f"training:{qd['id']}", qd['choices']))
+    parts = query.data.split(":")
+    idx = int(parts[-1])
+    if idx < len(TRAINING_QUESTIONS):
+        q = TRAINING_QUESTIONS[idx]
+        kb = [[InlineKeyboardButton(ch, callback_data=f"train_ans:{idx}:{i}")]
+              for i, ch in enumerate(q["choices"])]
+        await query.edit_message_text(
+            f"❓ تدريب {idx+1}/{len(TRAINING_QUESTIONS)}\n{q['text']}",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
     else:
-        answers = context.user_data.get("answers", {})
-        total = len(questions)
-        correct = 0
-        for qx in questions:
-            sel = int(answers.get(qx["id"], 0))
-            if sel == int(qx["answer_index"]):
-                correct += 1
-        percent = int((correct/total)*100) if total else 0
-        from utils.database import add_attempt
-        add_attempt(q.from_user.id, "training", context.user_data.get("path",""), correct, total, percent)
-        context.user_data.pop("questions", None)
-        context.user_data.pop("q_idx", None)
-        context.user_data.pop("path", None)
-        context.user_data.pop("section", None)
-        context.user_data.pop("answers", None)
-        res = f"✅ انتهت الأسئلة!\nالنتيجة: *{correct}* من *{total}*\nالنسبة: *{percent}%*"
-        await q.edit_message_text(res, parse_mode="Markdown", reply_markup=results_kb("training", d, l, r))
+        # انتهى التدريب
+        answers = context.user_data.get("train_answers", {})
+        correct = sum(1 for i, q in enumerate(TRAINING_QUESTIONS) if answers.get(i) == q["answer"])
+        percent = int((correct/len(TRAINING_QUESTIONS))*100)
 
-async def training_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    parts = q.data.split(":")
-    if len(parts) != 3:
-        await q.edit_message_text("إجابة غير مفهومة.", reply_markup=back_to_main_kb()); return
-    _, qid, choice = parts
-    context.user_data.setdefault("answers", {})
-    rawid = qid.split(":", 1)[-1]
-    context.user_data["answers"][rawid] = int(choice)
-    idx = int(context.user_data.get("q_idx", 0)) + 1
-    context.user_data["q_idx"] = idx
-    path = context.user_data.get("path", "door:1/lesson:1/rule:1")
-    parts2 = path.replace("/", ":").split(":")
-    d, l, r = parts2[1], parts2[3], parts2[5]
-    ct = _load()
-    questions = ct["doors"][d]["lessons"][l]["rules"][r].get("questions", [])
-    if idx < len(questions):
-        qd = questions[idx]
-        qtext = f"❓ سؤال {idx+1}/{len(questions)}\n{qd['text']}"
-        await q.edit_message_text(qtext, reply_markup=choices_kb(f"training:{qd['id']}", qd['choices']))
-    else:
-        answers = context.user_data.get("answers", {})
-        total = len(questions)
-        correct = 0
-        for qx in questions:
-            sel = int(answers.get(qx["id"], 0))
-            if sel == int(qx["answer_index"]):
-                correct += 1
-        percent = int((correct/total)*100) if total else 0
-        from utils.database import add_attempt
-        add_attempt(q.from_user.id, "training", context.user_data.get("path",""), correct, total, percent)
-        context.user_data.clear()
-        res = f"✅ انتهت الأسئلة!\nالنتيجة: *{correct}* من *{total}*\nالنسبة: *{percent}%*"
-        await q.edit_message_text(res, parse_mode="Markdown", reply_markup=results_kb("training", d, l, r))
+        # حفظ في قاعدة البيانات
+        save_student_progress(query.from_user.id, "training", {
+            "score": correct,
+            "total": len(TRAINING_QUESTIONS),
+            "percent": percent
+        })
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔁 أعد التدريب", callback_data="training:start:0")],
+            [InlineKeyboardButton("🏠 الرئيسية", callback_data="main:menu")]
+        ])
+        await query.edit_message_text(
+            f"✅ خلصت التدريب!\nالنتيجة: {correct}/{len(TRAINING_QUESTIONS)}\nالنسبة: {percent}%",
+            reply_markup=kb
+        )
+
+# === استقبال إجابات التدريب ===
+async def training_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    _, idx, choice = query.data.split(":")
+    idx, choice = int(idx), int(choice)
+
+    context.user_data.setdefault("train_answers", {})
+    context.user_data["train_answers"][idx] = choice
+
+    # التالي
+    next_idx = idx + 1
+    fake_cb = f"training:start:{next_idx}"
+    query.data = fake_cb  # نغيّر البيانات ونرجّعها للـ start
+    await training_start_handler(update, context)
