@@ -1,7 +1,7 @@
 
 # config.py
-TELEGRAM_BOT_TOKEN = "ضع_التوكين_هنا"
-valid_keys = ["ABC123", "XYZ789", "TESTKEY"]
+TELEGRAM_BOT_TOKEN = "TOKEN"
+valid_keys = ["a", "XYZ789", "TESTKEY"]
 DB_FILE = "students.json"
 FEEDBACK_FILE = "feedback.json"
 CONTENT_DIR = "content"
